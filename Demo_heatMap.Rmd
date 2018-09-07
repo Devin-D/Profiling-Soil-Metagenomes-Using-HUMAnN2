@@ -1,0 +1,125 @@
+---
+title: "Demo_heatMap"
+author: "Devin Dinwiddie"
+date: "September 5, 2018"
+output: html_document
+---
+
+This markdown is a guide to making a heatmap with genefamily data output from HUMAnN2. The data come from a subset of samples collected from wine vineyard soils in the pacific northwest. The associated files include the genefamily relative abundance data, as well as the metadata associated with the samples, and a map to the kegg pathway descriptions. These data are intended for learning only and have been altered to protect the real data.
+
+The metadata file contains the sample name, whether samples were taken from directly below a vine or in the ally between two vine rows, as well as the management style of the vineyard (conventional or organic).
+
+For this tutorial we will focus on the nitrogen metabolism pathway across management styles
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(messages = F)
+knitr::opts_chunk$set(warning  = F)
+knitr::opts_chunk$set(fig.width=12, fig.height=8,fig.align = 'center')
+library(vegan)
+library(reshape2)
+library(ggplot2)
+library(viridis)
+library(multcompView)
+library(grid)
+library(plyr)
+library(ggpubr)
+```
+
+
+###Heatmap
+```{r}
+#read in the data
+gene_counts=read.delim("ko_u50_Demo_relabun.txt",header = T) # read in the relab gene count data
+meta=read.delim("Demo_mapping.txt") # read in the meta data
+Ko_map=read.delim("ko_map.txt",header=T) # read in the kegg pathway map
+
+
+# organize the data
+colnames(gene_counts)=gsub("_S.*","",colnames(gene_counts)) #rename the headers to match meta data sample names *replace _S and everything after with a space
+
+colnames(Ko_map) <- c("Level_1", "Level_2", "Level_3", "ko", "Description", "ID", "EC") # rename headers of kegg map
+
+colnames(meta)[1]='ID' # rename the first column of the meta data to ID for merging later
+
+gene_counts$ID=sub(":.*","",gene_counts$X..Gene.Family) # make a ID column of ko names to match kegg map file **for merge later
+
+
+# grab the kegg data associated with Energy Metabolism --specificaly Nitrogen metabolism
+koNit <- subset(Ko_map, Level_2 == "Energy Metabolism" & Level_3=='Nitrogen metabolism') # look at just energy metabolism --nitrogne metabolism pathways
+
+#merge the data together
+full_tab=merge(gene_counts,koNit,by='ID')  # merge gene abundance table with kegg map
+
+long_tab=melt(full_tab) #convert to long format
+
+# make a column of gene names
+long_tab$Gf=gsub("\\[.*","",long_tab$X..Gene.Family)
+long_tab$Gf=gsub(".*:","",long_tab$Gf)
+
+#get rid of the columns not needed
+long_tab1=long_tab[,9:11]
+
+colnames(long_tab1)[1]="ID" #change column name to merge with meta data
+
+
+final_tab=merge(long_tab1,meta,by="ID") # merge meta data with long format data
+
+final_tab=subset(final_tab,Gf!=" NO_NAME") # some of the gene names are unwanted * remove those
+
+
+# we are going to create 2 heatmaps for each management type then put them together in 1 figure
+# first we need to subset the data by management type
+
+conv=subset(final_tab,final_tab$management=='conv') #subset conventional management
+org=subset(final_tab,final_tab$management=='org') #subset organic management
+
+# set the levels for plotting
+conv$Gf=factor(conv$Gf,levels=unique(conv$Gf))
+org$Gf=factor(org$Gf,levels=unique(org$Gf))
+
+#length(unique(conv$Gf))#97 unique gene names
+#length(unique(org$Gf)) #97 as well
+
+
+#make some heatmaps with ggplot
+
+#conventional
+gc <- ggplot(conv, aes(x=ID, y=Gf, fill=value)) + 
+  geom_tile(color="white", size=0.1)+
+  scale_fill_viridis(name="scale",limits=c(0,0.0015))+ # I already know the limits to set remove limits=() if running your own data
+  labs(x=NULL, y=NULL, title="Conventional")+
+ theme(axis.ticks=element_blank())+
+  theme(axis.text.y=element_text(color=c(rep('black',96))))+
+ theme(legend.position="bottom")+
+ theme(legend.key.size=unit(1, "cm"))+
+ theme(legend.key.width=unit(2, "cm"))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"),strip.text = element_text(colour = 'white'),text = element_text(size=5),legend.text=element_text(size=18),axis.text.x = element_blank(),axis.ticks.x = element_blank(),legend.title = element_blank(),plot.title = element_text(size=44))+theme(strip.text = element_text(size = 32))
+
+#ORGANIC
+go <- ggplot(org, aes(x=ID, y=Gf, fill=value)) + 
+  geom_tile(color="white", size=0.1)+
+  scale_fill_viridis(name="scale",limits=c(0,0.0015))+ # I already know the limits to set remove limits=() if running your own data
+  labs(x=NULL, y=NULL, title="Organic")+
+ theme(axis.ticks=element_blank())+
+  theme(axis.text.y=element_text(color=c(rep('black',96))))+
+ theme(legend.position="bottom")+
+ theme(legend.key.size=unit(1, "cm"))+
+ theme(legend.key.width=unit(2, "cm"))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"),strip.text = element_text(colour = 'white'),text = element_text(size=5),legend.text=element_text(size=18),axis.text.x = element_blank(),axis.ticks.x = element_blank(),legend.title = element_blank(),plot.title = element_text(size=44))+theme(strip.text = element_text(size = 32))
+
+
+# put the 2 figures into 1 figure for presentaion
+fin=ggarrange(gc,go, 
+          ncol = 1, nrow =2)
+
+fin
+
+
+#lets check real quick if there is a significant difference in nitrogen metabolism genes across management types
+
+summary(aov(value~management,data=final_tab))
+```
+
+
